@@ -100,6 +100,9 @@
 
         #browser-support-warning {
             color: red;
+            top: 0;
+            left: 0;
+            position: fixed;
         }
     </style>
 
@@ -111,7 +114,7 @@
 
     {% if browserNotSupported %}
     <div id="browser-support-warning">
-      Your Browser isn't full supported yet, but we're working on it.
+      Your Browser isn't fully supported yet, but we're working on it.
     </div>
     {% endif %}
 
