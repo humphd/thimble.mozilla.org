@@ -44,6 +44,11 @@ define(function(require) {
         Bramble.mount(Project.getRoot(), fileToOpen);
       });
 
+      $(".let-me-in").on("click",function(){
+          $("#browser-support-warning").fadeOut();
+          return false;
+      });
+
       Bramble.once("ready", function(bramble) {
         // For debugging, attach to window.
         window.bramble = bramble;
