@@ -9,7 +9,8 @@ require.config({
     "uuid": "/bower/node-uuid/uuid",
     "cookies": "/bower/cookies-js/dist/cookies",
     "project": "../../project/project",
-    "constants": "../../constants"
+    "constants": "../../constants",
+    "EventEmitter": "/bowser/eventEmitter/EventEmitter.min"
   },
   shim: {
     "jquery": {

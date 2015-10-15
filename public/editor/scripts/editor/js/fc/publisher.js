@@ -1,6 +1,7 @@
 define(function(require) {
   var $ = require("jquery");
   var Project = require("project");
+  var FileSystemSync = require("fc/filesystem-sync");
   var SyncState = require("fc/sync-state");
   var host;
 
@@ -20,7 +21,6 @@ define(function(require) {
   }
 
   function Publisher(options) {
-    this.fsync = options.sync;
     host = Project.getHost();
     this.csrfToken = $("meta[name='csrf-token']").attr("content");
     this.dialog = {
@@ -60,7 +60,7 @@ define(function(require) {
     if(publishUrl) {
       this.updateDialog(publishUrl, true);
     }
-
+/** TODO - not sure about this...
     if(publisher.fsync) {
       publisher.fsync.addBeforeEachCallback(function() {
         if(dialog.trackSyncChanges) {
@@ -88,7 +88,7 @@ define(function(require) {
           publisher.needsUpdate = true;
         });
       });
-
+      
       // Don't allow publishing when we're syncing
       SyncState.onSyncing(function() {
         publisher.disable();
@@ -97,7 +97,7 @@ define(function(require) {
         publisher.enable();
       });
     }
-
+**/
     dialog.buttons.publish.on("click", publisher.handlers.publish);
 
     // Were there any files that were updated and not published?
@@ -168,7 +168,7 @@ define(function(require) {
     setState(false);
     dialog.trackSyncChanges = false;
 
-    publisher.fsync.saveAndSyncAll(function(err) {
+    FileSystemSync.saveAndSyncAll(function(err) {
       if(err) {
         console.error("[Thimble] Failed to publish project");
         setState(true);

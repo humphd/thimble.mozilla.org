@@ -4,6 +4,7 @@ define(function(require) {
   var KeyHandler = require("fc/bramble-keyhandler");
   var BrambleMenus = require("fc/bramble-menus");
   var Underlay = require("fc/bramble-underlay");
+  var FileSystemSync = require("fc/filesystem-sync");
   var Path = Bramble.Filer.Path;
   var Project = require("project");
 
@@ -15,8 +16,7 @@ define(function(require) {
     $(".preview-pane-nav").width(data.secondPaneWidth);
   }
 
-  function init(bramble, options) {
-    var sync = options.sync;
+  function init(bramble) {
     var publisher;
 
     // *******ON LOAD
@@ -42,12 +42,6 @@ define(function(require) {
         $("#editor-pane-nav-options-menu").hide();
         $("#editor-pane-nav-fileview").hide();
         $(".filetree-pane-nav").css("display", "block");
-      }
-    }
-
-    function showFileState() {
-      if(sync) {
-        $("#navbar-save-indicator").removeClass("hide");
       }
     }
 
@@ -230,7 +224,7 @@ define(function(require) {
       // Listen for ESC to close
       _escKeyHandler = new KeyHandler.ESC(hidePublishDialog);
 
-      publisher.fsync.saveAndSyncAll(function(err) {
+      FileSystemSync.saveAndSyncAll(function(err) {
         if (err) {
           console.log('[Bramble] Error saving and persisting dirty files:', err);
           return;
@@ -295,23 +289,6 @@ define(function(require) {
     bramble.on("activeEditorChange", function(data) {
       console.log("thimble side", "activeEditorChange", data);
       setNavFilename(data.filename);
-    });
-
-    // File Change Events
-    bramble.on("fileChange", function(filename) {
-      console.log("thimble side", "fileChange", filename);
-      showFileState();
-    });
-
-    bramble.on("fileDelete", function(filename) {
-      console.log("thimble side", "fileDelete", filename);
-      showFileState();
-    });
-
-    bramble.on("fileRename", function(oldFilename, newFilename) {
-      console.log("thimble side", "fileRename", oldFilename, newFilename);
-      setNavFilename(Path.basename(newFilename));
-      showFileState();
     });
 
     $("#spinner-container").fadeOut();

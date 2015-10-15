@@ -167,6 +167,41 @@ define(function(require) {
     });
   }
 
+  // Gets the file sync operation queue on the project root, which has information
+  // about all paths that need to be sync'ed with the server, and what needs to happen.
+  function getSyncQueue(root, callback) {
+    callback = lockSafeCallback(callback);
+
+    lock(function() {
+      getMetadata(root, function(err, metadata) {
+        if(err) {
+          return callback(err);
+        }
+
+        // Always return an object that has a `pending` child object.
+        var syncQueue = metadata && metadata.syncQueue || {pending: {}}
+        callback(null, syncQueue);
+      });
+    });
+  }
+
+  // Sets the file sync operation queue on the project root
+  function setSyncQueue(root, value, callback) {
+    callback = lockSafeCallback(callback);
+
+    lock(function() {
+      getMetadata(root, function(err, metadata) {
+        if(err) {
+          return callback(err);
+        }
+
+        metadata = metadata || {};
+        metadata.syncQueue = value;
+
+        fs.setxattr(root, PROJECT_META_KEY, metadata, callback);
+      });
+    });
+  }
 
   // Places project metadata (project id, file paths + publish ids) as an
   // extended attribute on on the project root folder. We don't lock here
@@ -287,6 +322,8 @@ define(function(require) {
     setTitle: setTitle,
     removeFile: removeFile,
     setPublishNeedsUpdate: setPublishNeedsUpdate,
-    getPublishNeedsUpdate: getPublishNeedsUpdate
+    getPublishNeedsUpdate: getPublishNeedsUpdate,
+    getSyncQueue: getSyncQueue,
+    setSyncQueue: setSyncQueue
   };
 });

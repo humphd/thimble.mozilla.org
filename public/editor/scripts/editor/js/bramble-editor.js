@@ -10,7 +10,7 @@ define(function(require) {
   return {
     csrfToken: csrfToken,
     create: function(options) {
-      var fsync = FileSystemSync.init(csrfToken);
+      FileSystemSync.init(csrfToken);
 
       // If the user is logged in, make it a bit harder to close while we're syncing
       if(Project.getUser()) {
@@ -46,7 +46,7 @@ define(function(require) {
       Bramble.once("ready", function(bramble) {
         // For debugging, attach to window.
         window.bramble = bramble;
-        BrambleUIBridge.init(bramble, { sync: fsync });
+        BrambleUIBridge.init(bramble);
       });
     }
   };

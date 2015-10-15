@@ -103,6 +103,17 @@ define(function(require) {
     Metadata.getPublishNeedsUpdate(getRoot(), callback);
   }
 
+  // Gets the file sync operation queue on the project root, which has information
+  // about all paths that need to be sync'ed with the server, and what needs to happen.
+  function getSyncQueue(callback) {
+    Metadata.getSyncQueye(getRoot(), callback);
+  }
+
+  // Sets the file sync operation queue on the project root
+  function setSyncQueue(value, callback) {
+    Metadata.setSyncQueye(getRoot(), value, callback);
+  }
+
   function init(projectDetails, host, callback) {
     _user = projectDetails.userID;
     _id = projectDetails.id;
@@ -237,6 +248,9 @@ define(function(require) {
     removeFile: removeFile,
 
     publishNeedsUpdate: publishNeedsUpdate,
-    getPublishNeedsUpdate: getPublishNeedsUpdate
+    getPublishNeedsUpdate: getPublishNeedsUpdate,
+
+    setSyncQueue: setSyncQueue,
+    getSyncQueue: getSyncQueue
   };
 });
