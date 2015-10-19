@@ -19,6 +19,9 @@ define(function() {
 
   // To enable logging, use ?logging=1
   return (function(search) {
+    // TODO: fix this to do the check, always return log() for now
+    return log;
+
     if(search.indexOf("logging=1") > -1) {
       return log;
     }
