@@ -45,6 +45,7 @@ module.exports = function( grunt ) {
           paths: {
             "bowser": "../../../../resources/scripts/vendor/bowser",
             "sso-override": "../../sso-override",
+            "logger": "../../logger",
             "jquery": "../../../../../bower_components/jquery/index",
             "localized": "../../../../../bower_components/webmaker-i18n/localized",
             "uuid": "../../../../../bower_components/node-uuid/uuid",

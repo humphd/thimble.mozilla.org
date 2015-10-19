@@ -3,7 +3,6 @@ define(function(require) {
   var Path = Bramble.Filer.Path;
   var Buffer = Bramble.Filer.Buffer;
   var fs = Bramble.getFileSystem();
-  var SyncManager = require("sync-manager");
 
   // Installs a tarball (arraybuffer) containing the project's files/folders.
   function installTarball(root, tarball, callback) {
@@ -81,10 +80,10 @@ define(function(require) {
   }
 
   function upgradeAnonymousProject(config, callback) {
-    var syncManager = SyncManager.getInstance();
     var shell = new fs.Shell();
     var oldRoot = Path.join(Constants.ANONYMOUS_USER_FOLDER, config.anonymousId.toString());
     var newRoot = config.root;
+    var pathUpdatesCache = [];
 
     function upgradeFile(path, next) {
       if (path.match(/\/$/)) {
@@ -111,7 +110,7 @@ define(function(require) {
             }
 
             // Track this as a file to be persisted to publish
-            syncManager.addFileUpdate(newPath);
+            pathUpdatesCache.push(newPath);
             next();
           });
         });
@@ -130,11 +129,8 @@ define(function(require) {
           return callback(err);
         }
 
-        // Start syncing all the files we've queued
-        syncManager.sync();
-
-        // Don't wait on the sync to finish, it can happen in parallel.
-        callback();
+        // Send back the list of paths to be updated
+        callback(null, pathUpdatesCache);
       });
     });
   }

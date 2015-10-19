@@ -2,6 +2,7 @@ define(function(require) {
   var Constants = require("constants");
   var Remote = require("../../project/remote");
   var Metadata = require("../../project/metadata");
+  var logger = require("logger");
   var Path = Bramble.Filer.Path;
 
   var _host;
@@ -14,6 +15,12 @@ define(function(require) {
   var _anonymousId;
   var _remixId;
   var _description;
+
+  var _cache;
+
+  function getCache() {
+    return _cache;
+  }
 
   function getAnonymousId() {
     return _anonymousId;
@@ -106,12 +113,73 @@ define(function(require) {
   // Gets the file sync operation queue on the project root, which has information
   // about all paths that need to be sync'ed with the server, and what needs to happen.
   function getSyncQueue(callback) {
-    Metadata.getSyncQueye(getRoot(), callback);
+    Metadata.getSyncQueue(getRoot(), callback);
   }
 
   // Sets the file sync operation queue on the project root
   function setSyncQueue(value, callback) {
-    Metadata.setSyncQueye(getRoot(), value, callback);
+    Metadata.setSyncQueue(getRoot(), value, callback);
+  }
+
+  /**
+   * The cache is an in-memory, localStorage-backed array of paths + operations to be
+   * synced. It gets merged with the sync queue on a regular basis (i.e., written to
+   * disk). We use it so that we don't have two separate writes to the sync queue.
+   */
+  function Cache() {
+    var items = [];
+
+    this.getItems = function() {
+      return items;
+    };
+
+    if(!window.localStorage) {
+      return;
+    }
+
+    var key = Constants.CACHE_KEY_PREFIX + getRoot();
+
+    // Register to save any in-memory cache operations before we close
+    window.addEventListener("unload", function() {
+      if(!items.length) {
+        return;
+      }
+
+      localStorage.setItem(key, JSON.stringify(items));
+    });
+
+    var prev = localStorage.getItem(key);
+    if(!prev) {
+      return;
+    }
+
+    // Read any cached operations out of storage
+    localStorage.removeItem(key);
+    try {
+      items = items.concat(JSON.parse(prev));
+      logger("project", "initialized file operation cache from storage", items);
+    } catch(e) {
+      logger("project", "failed to initialize cached file operations from storage", prev);
+      items = [];
+    }
+  }
+
+  function queueFileUpdate(path) {
+    logger("project", "queueFileUpdate", path);
+
+    _cache.getItems().push({
+      path: path,
+      operation: Constants.SYNC_OPERATION_UPDATE
+    });
+  }
+
+  function queueFileDelete(path) {
+    logger("project", "queueFileDelete", path);
+
+    _cache.getItems().push({
+      path: path,
+      operation: Constants.SYNC_OPERATION_DELETE
+    });
   }
 
   function init(projectDetails, host, callback) {
@@ -123,6 +191,7 @@ define(function(require) {
     _publishUrl = projectDetails.publishUrl;
     _fs = Bramble.getFileSystem();
     _description = projectDetails.description;
+    _cache = new Cache();
 
     var metadataLocation = _user && _anonymousId ? Path.join(Constants.ANONYMOUS_USER_FOLDER, _anonymousId.toString()) : getRoot();
 
@@ -164,9 +233,16 @@ define(function(require) {
       id: _id,
       remixId: _remixId,
       anonymousId: _anonymousId
-    }, function(err) {
+    }, function(err, pathUpdatesCache) {
       if(err) {
         return callback(err);
+      }
+
+      // If there are cached paths that need to be updated, queue those now
+      if(pathUpdatesCache && pathUpdatesCache.length) {
+        pathUpdatesCache.forEach(function(path) {
+          queueFileUpdate(path);
+        });
       }
 
       var now = (new Date()).toISOString();
@@ -250,6 +326,9 @@ define(function(require) {
     getPublishNeedsUpdate: getPublishNeedsUpdate,
 
     setSyncQueue: setSyncQueue,
-    getSyncQueue: getSyncQueue
+    getSyncQueue: getSyncQueue,
+    getCache: getCache,
+    queueFileUpdate: queueFileUpdate,
+    queueFileDelete: queueFileDelete
   };
 });

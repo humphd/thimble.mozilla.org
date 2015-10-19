@@ -3,10 +3,14 @@ define(function(require) {
   var EventEmitter = require("EventEmitter");
   var SYNC_OPERATION_UPDATE = require("constants").SYNC_OPERATION_UPDATE;
   var SYNC_OPERATION_DELETE = require("constants").SYNC_OPERATION_DELETE;
-  var CACHE_KEY = require("constants").CACHE_KEY;
   var Project = require("project");
+  var logger = require("logger");
 
+  // SyncManager instance
   var _instance;
+
+  // Timer for how often to empty the sync queue if not explicitly asked to do so
+  var SYNC_TIMEOUT_MS = 5 * 1000;
 
   function bufferToFormData(path, buffer, dateUpdated) {
     dateUpdated = dateUpdated || (new Date()).toISOString();
@@ -45,42 +49,6 @@ define(function(require) {
   }
 
   /**
-   * The cache is an in-memory, localStorage-backed array of paths + operations to be
-   * synced. It gets merged with the sync queue on a regular basis (i.e., written to
-   * disk). We use it so that we don't have two separate writes to the sync queue.
-   */
-  function Cache() {
-    var items = this.items = [];
-
-    if(!window.localStorage) {
-      return;
-    }
-
-    // Register to save any in-memory cache operations before we close
-    window.addEventListener("unload", function() {
-      if(!items.length) {
-        return;
-      }
-
-      localStorage.setItem(JSON.stringify(items));
-    });
-
-    var prev = localStorage.getItem(CACHE_KEY);
-    if(!prev) {
-      return;
-    }
-
-    // Read any cached operations out of storage
-    localStorage.removeItem(CACHE_KEY);
-    try {
-      items = items.concat(JSON.parse(prev));
-    } catch(e) {
-      console.log("[Thimble Error] couldn't read cached operations on startup", prev, e);
-      items = [];
-    }
-  }
-
-  /**
    * The SyncQueue keeps track of sync operations to be performed on paths.
    * This currently includes UPDATE and DELETE operations (create, update, delete
    * and rename are all done using these two). The data structure looks like this:
@@ -116,17 +84,19 @@ define(function(require) {
     this.pendingCount = 0;
     // Whether or not we are currently syncing
     this.syncing = false;
-
-    // Queue of file path operations that need to get synced.
-    // We hold these in memory and write them to disk when possible,
-    // or cache in localStorage if we can't get them synced before close.
-    this.cache = new Cache();
   }
   SyncManager.prototype = new EventEmitter();
   SyncManager.prototype.constructor = SyncManager;
 
   SyncManager.init = function(csrfToken) {
     _instance = new SyncManager(csrfToken);
+
+    // Setup automatic syncing
+    setInterval(function() {
+      logger("SyncManager", "autosync timer triggered after " + SYNC_TIMEOUT_MS + "ms");
+      _instance.sync();
+    }, SYNC_TIMEOUT_MS);
+
     return _instance;
   };
 
@@ -137,23 +107,26 @@ define(function(require) {
   SyncManager.prototype.emitProgressEvent = function() {
     var self = this;
     var pendingCount = self.pendingCount;
+    logger("SyncManager", "progress event", pendingCount);
     self.trigger("progress", [pendingCount]);      
  
      // Also emit a `complete` event if the pending count has gone to zero.
     if(pendingCount === 0) {
+      logger("SyncManager", "complete event");
       self.trigger("complete");
     }
   };
   SyncManager.prototype.emitErrorEvent = function(err) {
     this.setSyncing(false);
     this.trigger("error", [err]);
+    logger("SyncManager", "error event", err);
 
     // Try again
     this.runNextOperation();
   };
 
   SyncManager.prototype.setPendingCount = function(syncQueue) {
-    this.pendingCount = Object.keys(syncQueue.pending).length;    
+    this.pendingCount = Object.keys(syncQueue.pending).length;
   };
   SyncManager.prototype.getPendingCount = function() {
     return this.pendingCount;
@@ -267,14 +240,13 @@ define(function(require) {
   // completes on the callback.
   SyncManager.prototype.runNextOperation = function() {
     var self = this;
-    var csrfToken = self.csrfToken;
     var currentPath;
     var currentOperation;
 
     self.setSyncing(true);
 
     function flushCache(syncQueue) {
-      var items = self.cache.items;
+      var items = Project.getCache().getItems();
 
       if(!items.length) {
         return syncQueue;
@@ -325,14 +297,15 @@ define(function(require) {
 
         function queueOperation() {
           if(currentOperation === SYNC_OPERATION_UPDATE) {
-            self.addFileUpdate(currentPath);
+            Project.queueFileUpdate(currentPath);
           } else {
-            self.addFileDelete(currentPath);
+            Project.queueFileDelete(currentPath);
           }      
         }
 
         // If the operation errored, put this file operation back in the pending list
         if(error) {
+          logger("SyncManager", "error syncing file, requeuing operation", error);
           queueOperation();
         }
 
@@ -342,27 +315,31 @@ define(function(require) {
 
     function runCurrent() {
       if(currentOperation === SYNC_OPERATION_UPDATE) {
-        self.updateOperation(csrfToken, currentPath, finalizeOperation);
+        self.updateOperation(currentPath, finalizeOperation);
+      } else if(currentOperation === SYNC_OPERATION_DELETE) {
+        self.deleteOperation(currentPath, finalizeOperation);
       } else {
-        self.deleteOperation(csrfToken, currentPath, finalizeOperation);
+        self.emitErrorEvent(new Error("[Thimble Error] unknown sync operation:" + currentOperation));
       }
     }
 
     function selectCurrent(syncQueue) {
+      // Add any cached operations to the queue, which have recently come in.
+      syncQueue = flushCache(syncQueue);
+      self.setPendingCount(syncQueue);
+
       // If there are no pending paths to sync, we're done.
       if(self.pendingCount === 0) {
+        logger("SyncManager", "no pending sync operations, stopping syncing.");
         self.setSyncing(false);
         return;
       }
 
-      // Add any cached operations to the queue, which have recently come in.
-      syncQueue = flushCache(syncQueue);
-
-      // Pick a random file operation from the pending list for the next one
+      // Sync first path in the pending list
       var paths = Object.keys(syncQueue.pending);
-      var randomIdx = Math.floor(Math.random() * (paths.length + 1));
-      var currentPath = paths[randomIdx];
-      var currentOperation = syncQueue.pending[currentPath];
+      currentPath = paths[0];
+      currentOperation = syncQueue.pending[currentPath];
+      logger("SyncManager", "starting sync", currentPath, currentOperation);
 
       // Update current to the new path/operation, and remove from pending
       syncQueue.current = {
@@ -398,6 +375,7 @@ define(function(require) {
       if(syncQueue.current) {
         currentPath = syncQueue.current.path;
         currentOperation = syncQueue.current.operation;
+        logger("SyncManager", "restarting cached sync", currentPath, currentOperation);
         runCurrent();
       } else {
         selectCurrent(syncQueue);
@@ -410,6 +388,7 @@ define(function(require) {
   SyncManager.prototype.setSyncing = function(value) {
     // When we flip from not-syncing to syncing, emit an event
     if(!this.syncing && value) {
+      logger("SyncManager", "start syncing");
       this.trigger("sync-start");
     }
 
@@ -432,18 +411,13 @@ define(function(require) {
     this.runNextOperation();
   };
 
+// TODO - can I remove these and just use Project.*?
   SyncManager.prototype.addFileUpdate = function(path) {
-    this.cache.items.push({
-      path: path,
-      operation: SYNC_OPERATION_UPDATE
-    });
+    Project.queueFileUpdate(path);
   };
 
   SyncManager.prototype.addFileDelete = function(path) {
-    this.cache.items.push({
-      path: path,
-      operation: SYNC_OPERATION_DELETE
-    });
+    Project.queueFileDelete(path);
   };
 
   return SyncManager;

@@ -4,6 +4,7 @@ require.config({
   paths: {
     "bowser": "/resources/scripts/vendor/bowser",
     "sso-override": "../../sso-override",
+    "logger": "../../logger",
     "jquery": "/bower/jquery/index",
     "localized": "/bower/webmaker-i18n/localized",
     "uuid": "/bower/node-uuid/uuid",

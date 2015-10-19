@@ -4,6 +4,6 @@ define(function() {
     PROJECT_META_KEY: "thimble-project-meta",
     SYNC_OPERATION_UPDATE: "update",
     SYNC_OPERATION_DELETE: "delete",
-    CACHE_KEY: "thimble-cache-key"
+    CACHE_KEY_PREFIX: "thimble-cache-key-"
   };
 });

@@ -5,15 +5,15 @@ define(function(require) {
   var SyncState = require("fc/sync-state");
 
   var sync;
-  var bramble;
+  var brambleInstance;
 
   function saveAndSyncAll(callback) {
-    if(!(bramble && sync)) {
+    if(!(brambleInstance && sync)) {
       callback(new Error("[Thimble Error] saveAndSyncAll() called before init()"));
       return;
     }
 
-    bramble.saveAll(function() {
+    brambleInstance.saveAll(function() {
       if(sync.getPendingCount() === 0) {
         callback(null);
       } else {
@@ -49,23 +49,25 @@ define(function(require) {
 
     Bramble.once("ready", function(bramble) {
       function handleFileChange(path) {
-        sync.addFileUpdate(path);
+        Project.queueFileUpdate(path);
       }
 
       function handleFileDelete(path) {
-        sync.addFileDelete(path);
+        Project.queueFileDelete(path);
       }
 
       function handleFileRename(oldFilename, newFilename) {
         // Step 1: Create the new file
-        sync.addFileUpdate(newFilename);
+        Project.queueFileUpdate(newFilename);
         // Step 2: Delete the old file    
-        sync.addFileDelete(oldFilename);
+        Project.queueFileDelete(oldFilename);
       }
 
       bramble.on("fileChange", handleFileChange);
       bramble.on("fileDelete", handleFileDelete);
       bramble.on("fileRename", handleFileRename);
+
+      brambleInstance = bramble;
     });
   }
 
