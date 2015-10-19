@@ -2,7 +2,6 @@ define(function(require) {
   var $ = require("jquery"),
       BrambleUIBridge = require("fc/bramble-ui-bridge"),
       FileSystemSync = require("fc/filesystem-sync"),
-      SyncState = require("fc/sync-state"),
       Project = require("project");
 
   var csrfToken = $("meta[name='csrf-token']").attr("content");
@@ -12,19 +11,6 @@ define(function(require) {
     create: function(options) {
       FileSystemSync.init(csrfToken);
 
-      // If the user is logged in, make it a bit harder to close while we're syncing
-      if(Project.getUser()) {
-        fsync.addBeforeEachCallback(function() {
-          SyncState.syncing();
-        });
-
-        fsync.addAfterEachCallback(function() {
-          if(fsync.queueLength === 0) {
-            SyncState.completed();
-          }
-        });
-      }
-
       // Start loading the Bramble editor resources
       Bramble.load("#webmaker-bramble",{
         url: options.editorUrl,
@@ -32,7 +18,7 @@ define(function(require) {
       });
 
       // Start loading the project files
-      Project.load(fsync, csrfToken, function(err, fileToOpen) {
+      Project.load(csrfToken, function(err, fileToOpen) {
         if(err) {
           console.error("[Thimble Error]", err);
           return;

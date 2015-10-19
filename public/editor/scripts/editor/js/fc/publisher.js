@@ -20,7 +20,7 @@ define(function(require) {
       .on("click", publish);
   }
 
-  function Publisher(options) {
+  function Publisher() {
     host = Project.getHost();
     this.csrfToken = $("meta[name='csrf-token']").attr("content");
     this.dialog = {
@@ -88,7 +88,7 @@ define(function(require) {
           publisher.needsUpdate = true;
         });
       });
-      
+
       // Don't allow publishing when we're syncing
       SyncState.onSyncing(function() {
         publisher.disable();

@@ -9,8 +9,9 @@ require.config({
     "uuid": "/bower/node-uuid/uuid",
     "cookies": "/bower/cookies-js/dist/cookies",
     "project": "../../project/project",
+    "sync-manager": "../../project/sync-manager",
     "constants": "../../constants",
-    "EventEmitter": "/bowser/eventEmitter/EventEmitter.min"
+    "EventEmitter": "/bower/eventEmitter/EventEmitter.min"
   },
   shim: {
     "jquery": {
@@ -25,7 +26,7 @@ require(["jquery", "bowser"], function($, bowser) {
   if((bowser.msie && bowser.version < 11) || (bowser.safari && bowser.version < 8)) {
     $("#browser-support-warning").removeClass("hide");
 
-    $(".let-me-in").on("click", function(e) {
+    $(".let-me-in").on("click", function() {
       $("#browser-support-warning").fadeOut();
       return false;
     });

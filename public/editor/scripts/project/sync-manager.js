@@ -3,7 +3,8 @@ define(function(require) {
   var EventEmitter = require("EventEmitter");
   var SYNC_OPERATION_UPDATE = require("constants").SYNC_OPERATION_UPDATE;
   var SYNC_OPERATION_DELETE = require("constants").SYNC_OPERATION_DELETE;
-  var Project = require("../../project/project");
+  var CACHE_KEY = require("constants").CACHE_KEY;
+  var Project = require("project");
 
   var _instance;
 
@@ -18,6 +19,65 @@ define(function(require) {
     formData.append("brambleFile", blob);
 
     return formData;
+  }
+
+  // Decide between an update and delete operation, depending on previous operations.
+  function mergeOperations(previous, requested) {
+    // If there is no pending sync operation, or the new one is the same
+    // (update followed by update), just return the new one.
+    if(!previous || previous === requested) {
+      return requested;
+    }
+
+    // A delete trumps a pending update (we can skip a pending update if we'll just delete later)
+    if(previous === SYNC_OPERATION_UPDATE && requested === SYNC_OPERATION_DELETE) {
+      return SYNC_OPERATION_DELETE;
+    }
+
+    // An update trumps a pending delete (we can just update the old contents with new)
+    if(previous === SYNC_OPERATION_DELETE && requested === SYNC_OPERATION_UPDATE) {
+      return SYNC_OPERATION_UPDATE;
+    }
+
+    // Should never hit this, but if we do, default to an update
+    console.log("[Thimble Error] unexpected sync states, defaulting to update:", previous, requested);
+    return SYNC_OPERATION_UPDATE;
+  }
+
+  /**
+   * The cache is an in-memory, localStorage-backed array of paths + operations to be
+   * synced. It gets merged with the sync queue on a regular basis (i.e., written to
+   * disk). We use it so that we don't have two separate writes to the sync queue.
+   */
+  function Cache() {
+    var items = this.items = [];
+
+    if(!window.localStorage) {
+      return;
+    }
+
+    // Register to save any in-memory cache operations before we close
+    window.addEventListener("unload", function() {
+      if(!items.length) {
+        return;
+      }
+
+      localStorage.setItem(JSON.stringify(items));
+    });
+
+    var prev = localStorage.getItem(CACHE_KEY);
+    if(!prev) {
+      return;
+    }
+
+    // Read any cached operations out of storage
+    localStorage.removeItem(CACHE_KEY);
+    try {
+      items = items.concat(JSON.parse(prev));
+    } catch(e) {
+      console.log("[Thimble Error] couldn't read cached operations on startup", prev, e);
+      items = [];
+    }
   }
 
   /**
@@ -56,6 +116,11 @@ define(function(require) {
     this.pendingCount = 0;
     // Whether or not we are currently syncing
     this.syncing = false;
+
+    // Queue of file path operations that need to get synced.
+    // We hold these in memory and write them to disk when possible,
+    // or cache in localStorage if we can't get them synced before close.
+    this.cache = new Cache();
   }
   SyncManager.prototype = new EventEmitter();
   SyncManager.prototype.constructor = SyncManager;
@@ -197,15 +262,38 @@ define(function(require) {
 
       doDelete(id);
     });
-  }
+  };
   // Run an operation in the queue, and return the number of pending operations after it
   // completes on the callback.
   SyncManager.prototype.runNextOperation = function() {
     var self = this;
+    var csrfToken = self.csrfToken;
     var currentPath;
     var currentOperation;
 
     self.setSyncing(true);
+
+    function flushCache(syncQueue) {
+      var items = self.cache.items;
+
+      if(!items.length) {
+        return syncQueue;
+      }
+
+      // Migrate cached items to sync queue
+      items.forEach(function(item) {
+        var path = item.path;
+        var operation = item.operation;
+
+        var previous = syncQueue.pending[path] || null;
+        syncQueue.pending[path] = mergeOperations(previous, operation);
+      });
+
+      // Clear all cached items
+      items.length = 0;
+
+      return syncQueue;
+    }
 
     function finalizeOperation(error) {
       Project.getSyncQueue(function(err, syncQueue) {
@@ -223,6 +311,7 @@ define(function(require) {
               return;
             }
 
+            self.setPendingCount(syncQueue);
             self.emitProgressEvent();
 
             // If there are more files to sync, run the next one
@@ -266,8 +355,12 @@ define(function(require) {
         return;
       }
 
+      // Add any cached operations to the queue, which have recently come in.
+      syncQueue = flushCache(syncQueue);
+
       // Pick a random file operation from the pending list for the next one
-      var randomIdx = Math.floor(Math.random() * (pathsCount + 1));
+      var paths = Object.keys(syncQueue.pending);
+      var randomIdx = Math.floor(Math.random() * (paths.length + 1));
       var currentPath = paths[randomIdx];
       var currentOperation = syncQueue.pending[currentPath];
 
@@ -314,8 +407,12 @@ define(function(require) {
     Project.getSyncQueue(pickCurrentOperation);
   };
 
-
   SyncManager.prototype.setSyncing = function(value) {
+    // When we flip from not-syncing to syncing, emit an event
+    if(!this.syncing && value) {
+      this.trigger("sync-start");
+    }
+
     this.syncing = value;
 
     if(value) {
@@ -323,10 +420,10 @@ define(function(require) {
     } else {
       this.trigger("file-sync-stop");      
     }
-  }
+  };
   SyncManager.prototype.isSyncing = function() {
     return !!this.syncing;
-  }
+  };
   SyncManager.prototype.sync = function() {
     // If we're already in the process of syncing, bail
     if(this.syncing) {
@@ -335,53 +432,19 @@ define(function(require) {
     this.runNextOperation();
   };
 
-  function _mergeOperations(previous, requested) {
-    // If there is no pending sync operation, or the new one is the same
-    // (update followed by update), just return the new one.
-    if(!previous || previous === requested) {
-      return requested;
-    }
-
-    // A delete trumps a pending update (we can skip a pending update if we'll just delete later)
-    if(previous === SYNC_OPERATION_UPDATE && requested === SYNC_OPERATION_DELETE) {
-      return SYNC_OPERATION_DELETE;
-    }
-
-    // An update trumps a pending delete (we can just update the old contents with new)
-    if(previous === SYNC_OPERATION_DELETE && requested === SYNC_OPERATION_UPDATE) {
-      return SYNC_OPERATION_UPDATE;
-    }
-
-    // Should never hit this, but if we do, default to an update
-    console.log("[Thimble Error] unexpected sync states, defaulting to update:" previous, requested);
-    return SYNC_OPERATION_UPDATE;
-  }
-
-  function _queueOperationForPath(path, operation) {
-    Project.getSyncQueue(function(err, syncQueue) {
-      if(err) {
-        console.error("[Thimble Error] unable to queue sync operation for path `" + path + "`", err);
-        return;
-      }
-
-      var previous = syncQueue.pending[path] ? syncQueue.pending[path] : null;
-      syncQueue.pending[path] = _mergeOperations(previous, operation);
-
-      Project.setSyncQueue(syncQueue, function(err) {
-        if(err) {
-          console.error("[Thimble Error] unable to queue sync operation for path `" + path + "`", err);
-        }
-      });
-    });
-  }
-
   SyncManager.prototype.addFileUpdate = function(path) {
-    _queueOperationForPath(path, SYNC_OPERATION_UPDATE);
+    this.cache.items.push({
+      path: path,
+      operation: SYNC_OPERATION_UPDATE
+    });
   };
 
   SyncManager.prototype.addFileDelete = function(path) {
-    _queueOperationForPath(path, SYNC_OPERATION_DELETE);
-  }
+    this.cache.items.push({
+      path: path,
+      operation: SYNC_OPERATION_DELETE
+    });
+  };
 
   return SyncManager;
 });

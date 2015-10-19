@@ -5,7 +5,6 @@ define(function(require) {
   var BrambleMenus = require("fc/bramble-menus");
   var Underlay = require("fc/bramble-underlay");
   var FileSystemSync = require("fc/filesystem-sync");
-  var Path = Bramble.Filer.Path;
   var Project = require("project");
 
   var _escKeyHandler;
@@ -244,7 +243,7 @@ define(function(require) {
       $("#navbar-publish-button").click(showPublishDialog);
       $("#publish-button-cancel").click(hidePublishDialog);
 
-      publisher = new Publisher(options);
+      publisher = new Publisher();
       publisher.init();
     } else {
       $("#navbar-publish-button").click(showPublishHelper);

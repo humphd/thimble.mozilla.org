@@ -154,7 +154,7 @@ define(function(require) {
   }
 
   // Set all necesary data for this project, based on makeDetails rendered into page.
-  function load(fsync, csrfToken, callback) {
+  function load(csrfToken, callback) {
     // Step 1: download the project's contents (files + metadata) or upload an
     // anonymous project's content if this is an upgrade, and install into the root
     Remote.loadProject({
@@ -163,8 +163,7 @@ define(function(require) {
       user: _user,
       id: _id,
       remixId: _remixId,
-      anonymousId: _anonymousId,
-      fsync: fsync
+      anonymousId: _anonymousId
     }, function(err) {
       if(err) {
         return callback(err);

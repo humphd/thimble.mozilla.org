@@ -179,7 +179,7 @@ define(function(require) {
         }
 
         // Always return an object that has a `pending` child object.
-        var syncQueue = metadata && metadata.syncQueue || {pending: {}}
+        var syncQueue = metadata && metadata.syncQueue || {pending: {}};
         callback(null, syncQueue);
       });
     });

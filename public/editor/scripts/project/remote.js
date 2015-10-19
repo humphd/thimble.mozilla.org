@@ -3,6 +3,7 @@ define(function(require) {
   var Path = Bramble.Filer.Path;
   var Buffer = Bramble.Filer.Buffer;
   var fs = Bramble.getFileSystem();
+  var SyncManager = require("sync-manager");
 
   // Installs a tarball (arraybuffer) containing the project's files/folders.
   function installTarball(root, tarball, callback) {
@@ -80,34 +81,10 @@ define(function(require) {
   }
 
   function upgradeAnonymousProject(config, callback) {
-    var fsync = config.fsync;
+    var syncManager = SyncManager.getInstance();
     var shell = new fs.Shell();
     var oldRoot = Path.join(Constants.ANONYMOUS_USER_FOLDER, config.anonymousId.toString());
     var newRoot = config.root;
-
-    // We know we have to run shell.find and shell.rm before
-    // the callback can be fired for success, so we start at 2
-    // and increase by 1 for every file to be persisted asynchronously
-    // to the publish server
-    var pendingAsyncOperations = 2;
-    var callbackCalled = false;
-
-    function fireCallbackIfSafe(err) {
-      // We ensure an error is never swallowed
-      if (err && !callbackCalled) {
-        fsync.removeAfterEachCallback(fireCallbackIfSafe);
-        callbackCalled = true;
-        return callback(err);
-      }
-
-      // When all the operations are done, if we can safely
-      // call the callback we do so
-      if (--pendingAsyncOperations === 0 && !callbackCalled) {
-        fsync.removeAfterEachCallback(fireCallbackIfSafe);
-        callbackCalled = true;
-        callback();
-      }
-    }
 
     function upgradeFile(path, next) {
       if (path.match(/\/$/)) {
@@ -132,25 +109,33 @@ define(function(require) {
             if (err) {
               return next(err);
             }
-            pendingAsyncOperations++;
 
             // Track this as a file to be persisted to publish
-            fsync.handlers.change(newPath);
+            syncManager.addFileUpdate(newPath);
             next();
           });
         });
       });
     }
 
-    fsync.addAfterEachCallback(fireCallbackIfSafe);
     shell.find(oldRoot, {exec: upgradeFile}, function(err) {
-      pendingAsyncOperations--;
-
       if (err) {
-        return fireCallbackIfSafe(err);
+        console.error("[Thimble Error] unable to process path while upgrading anonymous project", err);
+        return callback(err);
       }
 
-      shell.rm(oldRoot, {recursive: true}, fireCallbackIfSafe);
+      shell.rm(oldRoot, {recursive: true}, function(err) {
+        if(err) {
+          console.error("[Thimble Error] unable to remove path while upgrading anonymous project", err);
+          return callback(err);
+        }
+
+        // Start syncing all the files we've queued
+        syncManager.sync();
+
+        // Don't wait on the sync to finish, it can happen in parallel.
+        callback();
+      });
     });
   }
 
