@@ -284,7 +284,6 @@ define(function(require) {
             }
 
             self.setPendingCount(syncQueue);
-            self.emitProgressEvent();
 
             // If there are more files to sync, run the next one
             if(self.getPendingCount() > 0) {
@@ -368,6 +367,7 @@ define(function(require) {
       }
 
       self.setPendingCount(syncQueue);
+      self.emitProgressEvent();
 
       // If there's already a current operation in the queue, restart it
       // since it probably means the browser shutdown before it could complete.
