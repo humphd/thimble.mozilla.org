@@ -216,13 +216,13 @@ define(function(require) {
       // If there is, we keep it and overwrite the ones that need to be updated
       project = project || {};
       project.title = config.title;
+      project.paths = {};
 
       // If it exists, data is in the following form, simplify it and make it easier
       // to get file id using a path:
       // [{ id: 1, path: "/index.html", project_id: 3 }, ... ]
       if (config.data) {
         project.id = config.id;
-        project.paths = {};
 
         config.data.forEach(function(info) {
           project.paths[info.path] = info.id;
@@ -276,6 +276,10 @@ define(function(require) {
 
   function load(config, callback) {
     if (config.user) {
+      if (config.update) {
+        return setMetadata(config, callback);
+      }
+
       return fetchMetadata(config, function(err, data) {
         setMetadata({
           data: data,

@@ -4,13 +4,14 @@ define(function(require) {
   var SYNC_OPERATION_UPDATE = require("constants").SYNC_OPERATION_UPDATE;
   var SYNC_OPERATION_DELETE = require("constants").SYNC_OPERATION_DELETE;
   var Project = require("project");
+  var Cache = require("../../project/cache");
   var logger = require("logger");
 
   // SyncManager instance
   var _instance;
 
   // Timer for how often to empty the sync queue if not explicitly asked to do so
-  var SYNC_TIMEOUT_MS = 5 * 1000;
+  var SYNC_TIMEOUT_MS = 10 * 1000;
 
   function bufferToFormData(path, buffer, dateUpdated) {
     dateUpdated = dateUpdated || (new Date()).toISOString();
@@ -25,34 +26,11 @@ define(function(require) {
     return formData;
   }
 
-  // Decide between an update and delete operation, depending on previous operations.
-  function mergeOperations(previous, requested) {
-    // If there is no pending sync operation, or the new one is the same
-    // (update followed by update), just return the new one.
-    if(!previous || previous === requested) {
-      return requested;
-    }
-
-    // A delete trumps a pending update (we can skip a pending update if we'll just delete later)
-    if(previous === SYNC_OPERATION_UPDATE && requested === SYNC_OPERATION_DELETE) {
-      return SYNC_OPERATION_DELETE;
-    }
-
-    // An update trumps a pending delete (we can just update the old contents with new)
-    if(previous === SYNC_OPERATION_DELETE && requested === SYNC_OPERATION_UPDATE) {
-      return SYNC_OPERATION_UPDATE;
-    }
-
-    // Should never hit this, but if we do, default to an update
-    console.log("[Thimble Error] unexpected sync states, defaulting to update:", previous, requested);
-    return SYNC_OPERATION_UPDATE;
-  }
-
   /**
    * The SyncQueue keeps track of sync operations to be performed on paths.
    * This currently includes UPDATE and DELETE operations (create, update, delete
    * and rename are all done using these two). The data structure looks like this:
-   * 
+   *
    * syncQueue = {
    *   current: {
    *     path: "/path/to/file/being/synced",
@@ -69,7 +47,7 @@ define(function(require) {
    * synced. The `syncQueue.current` object is the file and operation currently being
    * done, or the one that was in process when the app was stopped/crashed/closed.
    *
-   * The sync service picks a path at random from the `pending` list and moves it to 
+   * The sync service picks a path at random from the `pending` list and moves it to
    * `current`, before saving this sync state. Then it tries to do what is in `current`
    * and if it works, it clears `current` and repeats the process.  If it fails, the
    * path and operation in current are moved back to pending, and the process repeats.
@@ -90,13 +68,6 @@ define(function(require) {
 
   SyncManager.init = function(csrfToken) {
     _instance = new SyncManager(csrfToken);
-
-    // Setup automatic syncing
-    setInterval(function() {
-      logger("SyncManager", "autosync timer triggered after " + SYNC_TIMEOUT_MS + "ms");
-      _instance.sync();
-    }, SYNC_TIMEOUT_MS);
-
     return _instance;
   };
 
@@ -104,12 +75,21 @@ define(function(require) {
     return _instance;
   };
 
+  SyncManager.prototype.start = function() {
+    var self = this;
+
+    // Setup automatic syncing
+    setInterval(function() {
+      self.sync();
+    }, SYNC_TIMEOUT_MS);
+  };
+
   SyncManager.prototype.emitProgressEvent = function() {
     var self = this;
     var pendingCount = self.pendingCount;
-    logger("SyncManager", "progress event", pendingCount);
-    self.trigger("progress", [pendingCount]);      
- 
+    logger("SyncManager", "progress event - pending paths to sync:", pendingCount);
+    self.trigger("progress", [pendingCount]);
+
      // Also emit a `complete` event if the pending count has gone to zero.
     if(pendingCount === 0) {
       logger("SyncManager", "complete event");
@@ -134,7 +114,7 @@ define(function(require) {
 
   SyncManager.prototype.requestInProgress = function() {
     return !!this.pathBeingSynced;
-  };  
+  };
   SyncManager.prototype.requestStart = function(path) {
     this.pathBeingSynced = path;
   };
@@ -200,7 +180,7 @@ define(function(require) {
   };
   SyncManager.prototype.deleteOperation = function(path, callback) {
     var self = this;
-    var csrfToken = self.csrfToken;    
+    var csrfToken = self.csrfToken;
 
     function doDelete(id) {
       self.requestStart(path);
@@ -245,28 +225,6 @@ define(function(require) {
 
     self.setSyncing(true);
 
-    function flushCache(syncQueue) {
-      var items = Project.getCache().getItems();
-
-      if(!items.length) {
-        return syncQueue;
-      }
-
-      // Migrate cached items to sync queue
-      items.forEach(function(item) {
-        var path = item.path;
-        var operation = item.operation;
-
-        var previous = syncQueue.pending[path] || null;
-        syncQueue.pending[path] = mergeOperations(previous, operation);
-      });
-
-      // Clear all cached items
-      items.length = 0;
-
-      return syncQueue;
-    }
-
     function finalizeOperation(error) {
       Project.getSyncQueue(function(err, syncQueue) {
         if(err) {
@@ -299,7 +257,7 @@ define(function(require) {
             Project.queueFileUpdate(currentPath);
           } else {
             Project.queueFileDelete(currentPath);
-          }      
+          }
         }
 
         // If the operation errored, put this file operation back in the pending list
@@ -320,11 +278,12 @@ define(function(require) {
       } else {
         self.emitErrorEvent(new Error("[Thimble Error] unknown sync operation:" + currentOperation));
       }
+      self.emitProgressEvent();
     }
 
     function selectCurrent(syncQueue) {
       // Add any cached operations to the queue, which have recently come in.
-      syncQueue = flushCache(syncQueue);
+      syncQueue = Cache.transferToSyncQueue(syncQueue);
       self.setPendingCount(syncQueue);
 
       // If there are no pending paths to sync, we're done.
@@ -367,7 +326,6 @@ define(function(require) {
       }
 
       self.setPendingCount(syncQueue);
-      self.emitProgressEvent();
 
       // If there's already a current operation in the queue, restart it
       // since it probably means the browser shutdown before it could complete.
@@ -397,7 +355,7 @@ define(function(require) {
     if(value) {
       this.trigger("file-sync-start");
     } else {
-      this.trigger("file-sync-stop");      
+      this.trigger("file-sync-stop");
     }
   };
   SyncManager.prototype.isSyncing = function() {

@@ -14,11 +14,8 @@ define(function(require) {
     }
 
     brambleInstance.saveAll(function() {
-      if(sync.getPendingCount() === 0) {
-        callback(null);
-      } else {
-        sync.once("complete", callback);
-      }
+      sync.once("complete", callback);
+      sync.sync();
     });
   }
 
@@ -59,13 +56,15 @@ define(function(require) {
       function handleFileRename(oldFilename, newFilename) {
         // Step 1: Create the new file
         Project.queueFileUpdate(newFilename);
-        // Step 2: Delete the old file    
+        // Step 2: Delete the old file
         Project.queueFileDelete(oldFilename);
       }
 
       bramble.on("fileChange", handleFileChange);
       bramble.on("fileDelete", handleFileDelete);
       bramble.on("fileRename", handleFileRename);
+
+      SyncManager.getInstance().start();
 
       brambleInstance = bramble;
     });

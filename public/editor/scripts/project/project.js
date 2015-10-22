@@ -3,6 +3,7 @@ define(function(require) {
   var Remote = require("../../project/remote");
   var Metadata = require("../../project/metadata");
   var logger = require("logger");
+  var Cache = require("../../project/cache");
   var Path = Bramble.Filer.Path;
 
   var _host;
@@ -15,12 +16,6 @@ define(function(require) {
   var _anonymousId;
   var _remixId;
   var _description;
-
-  var _cache;
-
-  function getCache() {
-    return _cache;
-  }
 
   function getAnonymousId() {
     return _anonymousId;
@@ -121,53 +116,10 @@ define(function(require) {
     Metadata.setSyncQueue(getRoot(), value, callback);
   }
 
-  /**
-   * The cache is an in-memory, localStorage-backed array of paths + operations to be
-   * synced. It gets merged with the sync queue on a regular basis (i.e., written to
-   * disk). We use it so that we don't have two separate writes to the sync queue.
-   */
-  function Cache() {
-    var items = [];
-
-    this.getItems = function() {
-      return items;
-    };
-
-    if(!window.localStorage) {
-      return;
-    }
-
-    var key = Constants.CACHE_KEY_PREFIX + getRoot();
-
-    // Register to save any in-memory cache operations before we close
-    window.addEventListener("unload", function() {
-      if(!items.length) {
-        return;
-      }
-
-      localStorage.setItem(key, JSON.stringify(items));
-    });
-
-    var prev = localStorage.getItem(key);
-    if(!prev) {
-      return;
-    }
-
-    // Read any cached operations out of storage
-    localStorage.removeItem(key);
-    try {
-      items = items.concat(JSON.parse(prev));
-      logger("project", "initialized file operation cache from storage", items);
-    } catch(e) {
-      logger("project", "failed to initialize cached file operations from storage", prev);
-      items = [];
-    }
-  }
-
   function queueFileUpdate(path) {
     logger("project", "queueFileUpdate", path);
 
-    _cache.getItems().push({
+    Cache.getItems().push({
       path: path,
       operation: Constants.SYNC_OPERATION_UPDATE
     });
@@ -176,7 +128,7 @@ define(function(require) {
   function queueFileDelete(path) {
     logger("project", "queueFileDelete", path);
 
-    _cache.getItems().push({
+    Cache.getItems().push({
       path: path,
       operation: Constants.SYNC_OPERATION_DELETE
     });
@@ -191,7 +143,6 @@ define(function(require) {
     _publishUrl = projectDetails.publishUrl;
     _fs = Bramble.getFileSystem();
     _description = projectDetails.description;
-    _cache = new Cache();
 
     var metadataLocation = _user && _anonymousId ? Path.join(Constants.ANONYMOUS_USER_FOLDER, _anonymousId.toString()) : getRoot();
 
@@ -223,7 +174,7 @@ define(function(require) {
   }
 
   // Set all necesary data for this project, based on makeDetails rendered into page.
-  function load(csrfToken, callback) {
+  function _load(csrfToken, syncQueue, callback) {
     // Step 1: download the project's contents (files + metadata) or upload an
     // anonymous project's content if this is an upgrade, and install into the root
     Remote.loadProject({
@@ -232,7 +183,8 @@ define(function(require) {
       user: _user,
       id: _id,
       remixId: _remixId,
-      anonymousId: _anonymousId
+      anonymousId: _anonymousId,
+      syncQueue: syncQueue
     }, function(err, pathUpdatesCache) {
       if(err) {
         return callback(err);
@@ -246,12 +198,13 @@ define(function(require) {
       }
 
       var now = (new Date()).toISOString();
+      var isUpdate = !!_user && !!_anonymousId;
 
       // Step 2: If this was a project upgrade (from anonymous to authenticated),
       // update the project metadata on the server
       Metadata.update({
         host: _host,
-        update: !!_user && !!_anonymousId,
+        update: isUpdate,
         id: _id,
         csrfToken: csrfToken,
         data: {
@@ -273,7 +226,8 @@ define(function(require) {
           user: _user,
           remixId: _remixId,
           id: _id,
-          title: _title
+          title: _title,
+          update: isUpdate,
         }, function(err) {
           if(err) {
             return callback(err);
@@ -297,6 +251,31 @@ define(function(require) {
             callback(null, found[indexPos]);
           });
         });
+      });
+    });
+  }
+
+  function load(csrfToken, callback) {
+    Cache.init(getRoot());
+    getSyncQueue(function(err, syncQueue) {
+      if(err) {
+        if(err.code === "ENOENT") {
+          _load(csrfToken, {pending: {}}, callback);
+        } else {
+          callback(err);
+        }
+        return;
+      }
+
+      syncQueue = Cache.transferToSyncQueue(syncQueue);
+
+      setSyncQueue(syncQueue, function(err) {
+        if(err) {
+          callback(err);
+          return;
+        }
+
+        _load(csrfToken, syncQueue, callback);
       });
     });
   }
@@ -327,7 +306,6 @@ define(function(require) {
 
     setSyncQueue: setSyncQueue,
     getSyncQueue: getSyncQueue,
-    getCache: getCache,
     queueFileUpdate: queueFileUpdate,
     queueFileDelete: queueFileDelete
   };

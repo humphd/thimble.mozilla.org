@@ -1,17 +1,19 @@
 define(function(require) {
   var Constants = require("constants");
+  var SYNC_OPERATION_DELETE = require("constants").SYNC_OPERATION_DELETE;
   var Path = Bramble.Filer.Path;
   var Buffer = Bramble.Filer.Buffer;
   var fs = Bramble.getFileSystem();
 
   // Installs a tarball (arraybuffer) containing the project's files/folders.
-  function installTarball(root, tarball, callback) {
+  function installTarball(config, tarball, callback) {
     var untarWorker;
     var pending = null;
     var sh = new fs.Shell();
+    var root = config.root;
+    var pendingOperations = config.syncQueue.pending;
 
     function extract(path, data, callback) {
-      path = Path.join(root, path);
       var basedir = Path.dirname(path);
 
       sh.mkdirp(basedir, function(err) {
@@ -21,6 +23,17 @@ define(function(require) {
 
         fs.writeFile(path, new Buffer(data), {encoding: null}, callback);
       });
+    }
+
+    function maybeExtract(path, data, callback) {
+      path = Path.join(root, path);
+
+      if(pendingOperations[path] === SYNC_OPERATION_DELETE) {
+        callback();
+        return;
+      }
+
+      extract(path, data, callback);
     }
 
     function finish(err) {
@@ -49,7 +62,7 @@ define(function(require) {
         // Set the total number of files we need to deal with so we know when we're done
         pending = data.totalFilesInArchive;
       } else if(data.type === "extract") {
-        extract(data.unarchivedFile.filename, data.unarchivedFile.fileData, writeCallback);
+        maybeExtract(data.unarchivedFile.filename, data.unarchivedFile.fileData, writeCallback);
       } else if(data.type === "error") {
         finish(new Error("[Thimble error]: " + data.msg));
       }
@@ -74,7 +87,7 @@ define(function(require) {
         return callback(new Error("[Thimble error] unable to get tarball, status was:", this.status));
       }
 
-      installTarball(config.root, this.response, callback);
+      installTarball(config, this.response, callback);
     };
     xhr.send();
   }
