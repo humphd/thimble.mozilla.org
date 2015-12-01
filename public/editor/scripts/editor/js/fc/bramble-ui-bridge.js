@@ -133,9 +133,11 @@ define(function(require) {
       if(_inspectorEnabled) {
         bramble.disableInspector();
         analytics.event("InspectorDisabled");
+        $(this).removeClass("enabled");
       } else {
         bramble.enableInspector();
         analytics.event("InspectorEnabled");
+        $(this).addClass("enabled");
       }
 
       _inspectorEnabled = !_inspectorEnabled;
