@@ -127,6 +127,24 @@ define(function(require) {
       analytics.event("Redo");
     });
 
+    // Inspector
+    var _inspectorEnabled = false;
+    $("#preview-pane-nav-inspector").click(function() {
+      if(_inspectorEnabled) {
+        bramble.disableInspector();
+        analytics.event("InspectorDisabled");
+      } else {
+        bramble.enableInspector();
+        analytics.event("InspectorEnabled");
+      }
+
+      _inspectorEnabled = !_inspectorEnabled;
+    });
+    // Also listen for state changes in the inspector from the editor
+    bramble.on("inspectorChange", function(data) {
+      _inspectorEnabled = data.enabled;
+    });
+
     // Refresh Preview
     $("#preview-pane-nav-refresh").click(function() {
       bramble.refreshPreview();
